@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <windows.h>
 
+#include <exception>
+#include <stdexcept>
 #include <vector>
 
 using std::vector;
@@ -19,7 +21,9 @@ class BlackWhitePiece
  public:
   BlackWhitePiece(): type(0){};
   BlackWhitePiece(bool type): type(type ? 1 : 2){};
-  char display()
+  BlackWhitePiece(const BlackWhitePiece& p) = default;
+  bool get_type() const { return type; }
+  char display() const
   {
     if (type == 1)
     {
@@ -34,23 +38,25 @@ class BlackWhitePiece
       return 0;
     }
   }
-  BlackWhitePiece operator==(const BlackWhitePiece& p)
-  {
-    return this->type == p.type;
-  }
+  bool operator==(const BlackWhitePiece& p) { return this->type == p.type; }
 };
 
 template<class P>
 class BoardGame
 {
- public:
+ private:
   int width, height;
   vector<vector<P>> board;
-  BoardGame() {}
+
+ public:
+  BoardGame() = delete;
   BoardGame(int width, int height):
     width(width), height(height), board(width, vector<P>(height))
   {
   }
+
+  P get_piece(int x, int y) const { return board[x][y]; }
+
   void place(P p, int x, int y) { board[x][y] = p; }
   void remove(int x, int y) { board[x][y] = P(); }
   void display()
@@ -83,83 +89,257 @@ class BoardGame
 };
 class Gomoku: public BoardGame<BlackWhitePiece>
 {
+  const BlackWhitePiece BLACK = BlackWhitePiece(true);
+  const BlackWhitePiece WHITE = BlackWhitePiece(false);
+
+ private:
+  bool player;
+  int last_x, last_y;
+
  public:
-  Gomoku(): BoardGame<BlackWhitePiece>(15, 15) {}
+  Gomoku(): BoardGame<BlackWhitePiece>(15, 15), player(true) {}
+
+  bool get_state() const { return player; }
+
+  void place(int x, int y)
+  {
+    if (get_piece(x, y).display() == 0)
+    {
+      last_x = x;
+      last_y = y;
+      ((BoardGame<BlackWhitePiece>*)this)->place(BlackWhitePiece(player), x, y);
+      player = !player;
+    }
+    else
+    {
+      throw std::logic_error("overlap");
+    }
+  }
+  void remove() = delete;
   void display() { ((BoardGame<BlackWhitePiece>*)this)->display(); }
+  bool is_end()
+  {
+    BlackWhitePiece last_player = (!player) ? BLACK : WHITE;
+    int i = last_x, j = last_y;
+    int count = 0;
+
+    // horizontal
+    while (i > -1 && get_piece(i, j) == last_player)
+    {
+      i--;
+      count++;
+    }
+    i = last_x + 1;
+    while (i < 15 && get_piece(i, j) == last_player)
+    {
+      i++;
+      count++;
+    }
+    if (count >= 5)
+    {
+      return true;
+    }
+
+    // vertical
+    i = last_x;
+    count = 0;
+    while (j > -1 && get_piece(i, j) == last_player)
+    {
+      j--;
+      count++;
+    }
+    j = last_y + 1;
+    while (j < 15 && get_piece(i, j) == last_player)
+    {
+      j++;
+      count++;
+    }
+    if (count >= 5)
+    {
+      return true;
+    }
+
+    // slope 1
+    j = last_y;
+    count = 0;
+    while (i > -1 && j > -1 && get_piece(i, j) == last_player)
+    {
+      i--;
+      j--;
+      count++;
+    }
+    i = last_x + 1;
+    j = last_y + 1;
+    while (i < 15 && j < 15 && get_piece(i, j) == last_player)
+    {
+      i++;
+      j++;
+      count++;
+    }
+    if (count >= 5)
+    {
+      return true;
+    }
+
+    // slope 2
+    i = last_x;
+    j = last_y;
+    count = 0;
+    while (i < 15 && j > -1 && get_piece(i, j) == last_player)
+    {
+      i++;
+      j--;
+      count++;
+    }
+    i = last_x - 1;
+    j = last_y + 1;
+    while (i > -1 && j < 15 && get_piece(i, j) == last_player)
+    {
+      i--;
+      j++;
+      count++;
+    }
+    if (count >= 5)
+    {
+      return true;
+    }
+
+    return false;
+  }
+  bool winner() { return !player; }
 };
 
 int main(void)
 {
   Gomoku g;
-  bool state = false;
 
-  // g.place(BlackWhitePiece(true), 1, 2);
-  // g.display();
+  HANDLE out_h = GetStdHandle(STD_OUTPUT_HANDLE); // output handle
+  HANDLE in_h = GetStdHandle(STD_INPUT_HANDLE);   // input handle
 
-  // 获取标准输入输出设备句柄
-  HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-  HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+  INPUT_RECORD mr; // mouse record
+  DWORD res;       // ?
 
-  CONSOLE_SCREEN_BUFFER_INFO bInfo;
-  INPUT_RECORD mouseRec;
-  DWORD res;
-  COORD crPos, crHome = {1, 0}, crDisplay = {0, 15};
+  COORD h_c = {0, 0};  // home coord
+  COORD i_c = {31, 2}; // info coord
+  COORD e_c = {31, 0}; // exit coord
+  // COORD d_c = {0, 16}; // debug coord
 
-  DWORD mode;
-  GetConsoleMode(hIn, &mode);
-  mode &= ~ENABLE_QUICK_EDIT_MODE; //移除快速编辑模式
-  SetConsoleMode(hIn, mode);
-  CONSOLE_CURSOR_INFO CursorInfo;
-  GetConsoleCursorInfo(hOut, &CursorInfo); //获取控制台光标信息
-  CursorInfo.bVisible = false;             //隐藏控制台光标
-  SetConsoleCursorInfo(hOut, &CursorInfo); //设置控制台光标状态
+  // disable quick edit
+  DWORD cm; // console mode
+  GetConsoleMode(in_h, &cm);
+  cm &= ~ENABLE_QUICK_EDIT_MODE;
+  SetConsoleMode(in_h, cm);
 
-  // GetConsoleScreenBufferInfo(hOut, &bInfo);
-  SetConsoleCursorPosition(hOut, crDisplay);
-  printf("[Cursor Position] X: %3u  Y: %3u", crPos.X, crPos.Y);
-  SetConsoleCursorPosition(hOut, crHome);
+  // hide cursor
+  CONSOLE_CURSOR_INFO ci; // cursor info
+  GetConsoleCursorInfo(out_h, &ci);
+  ci.bVisible = false;
+  SetConsoleCursorInfo(out_h, &ci);
+
+  // display
+  SetConsoleCursorPosition(out_h, h_c);
   g.display();
-  // SetConsoleCursorPosition(hOut, bInfo.dwCursorPosition);
+
+  SetConsoleCursorPosition(out_h, e_c);
+  printf("exit");
 
   while (true)
   {
-    ReadConsoleInput(hIn, &mouseRec, 1, &res);
+    ReadConsoleInput(in_h, &mr, 1, &res);
 
-    if (mouseRec.EventType == MOUSE_EVENT)
+    if (mr.EventType == MOUSE_EVENT)
     {
-      if (mouseRec.Event.MouseEvent.dwButtonState ==
-        FROM_LEFT_1ST_BUTTON_PRESSED)
-      {
-        if (mouseRec.Event.MouseEvent.dwEventFlags == DOUBLE_CLICK)
-        {
-          break; // 左键双击 退出循环
-        }
-      }
+      COORD p_c = mr.Event.MouseEvent.dwMousePosition;
 
-      crPos = mouseRec.Event.MouseEvent.dwMousePosition;
-      SetConsoleCursorPosition(hOut, crDisplay);
-      printf("[Cursor Position] X: %3u  Y: %3u", crPos.X, crPos.Y);
-
-      switch (mouseRec.Event.MouseEvent.dwButtonState)
+      if (mr.Event.MouseEvent.dwButtonState == FROM_LEFT_1ST_BUTTON_PRESSED)
       {
-        case FROM_LEFT_1ST_BUTTON_PRESSED: // 左键 输出A
-          if (!(crPos.X % 2) && crPos.X < 15 * 2 && crPos.Y < 15)
+        if (!(p_c.X % 2) && p_c.X < 15 * 2 && p_c.Y < 15)
+        { // valid position to place
+          try
           {
-            g.place(BlackWhitePiece(state = !state), crPos.Y, crPos.X / 2);
+            g.place(p_c.Y, p_c.X / 2);
             MessageBeep(MB_OK);
           }
-          // FillConsoleOutputCharacter(hOut, '@', 1, crPos, &res);
-          break; // 如果使用printf输出，则之前需要先设置光标的位置
-
-        default:
-          break;
+          catch (std::logic_error& e)
+          {
+            if (strcmp(e.what(), "overlap") == 0)
+            {
+              MessageBeep(MB_ICONERROR);
+            }
+            else
+            {
+              throw e;
+            }
+          }
+          if (g.is_end())
+          {
+            SetConsoleCursorPosition(out_h, h_c);
+            g.display();
+            SetConsoleCursorPosition(out_h, i_c);
+            if (g.winner())
+            {
+              printf("Black won the game!");
+            }
+            else
+            {
+              printf("White won the game!");
+            }
+            break;
+          }
+        }
+        else if (p_c.X >= e_c.X && p_c.X < e_c.X + 4 && p_c.Y == e_c.Y)
+        {
+          goto end;
+        }
+        else
+        {
+          MessageBeep(MB_ICONERROR);
+        }
       }
-      SetConsoleCursorPosition(hOut, crHome);
+      SetConsoleCursorPosition(out_h, h_c);
       g.display();
+
+      // info
+      SetConsoleCursorPosition(out_h, i_c);
+      if (g.get_state())
+      {
+        printf("Black turn");
+      }
+      else
+      {
+        printf("White turn");
+      }
+
+      // debug
+      // SetConsoleCursorPosition(out_h, d_c);
+      // printf("[Cursor Position] X: %3u  Y: %3u", p_c.X, p_c.Y);
     }
   }
 
-  CloseHandle(hOut); // 关闭标准输出设备句柄
-  CloseHandle(hIn);  // 关闭标准输入设备句柄
+  while (true)
+  {
+    ReadConsoleInput(in_h, &mr, 1, &res);
+    if (mr.EventType == MOUSE_EVENT &&
+      mr.Event.MouseEvent.dwButtonState == FROM_LEFT_1ST_BUTTON_PRESSED)
+    {
+      break;
+    }
+  }
+end:
+  Sleep(100);
+  SetConsoleCursorPosition(out_h, i_c);
+  printf("Game ended, click anywhere to exit");
+  while (true)
+  {
+    ReadConsoleInput(in_h, &mr, 1, &res);
+    if (mr.EventType == MOUSE_EVENT &&
+      mr.Event.MouseEvent.dwButtonState == FROM_LEFT_1ST_BUTTON_PRESSED)
+    {
+      break;
+    }
+  }
+
+  CloseHandle(out_h);
+  CloseHandle(in_h);
   return 0;
 }
