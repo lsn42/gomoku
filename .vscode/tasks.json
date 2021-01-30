@@ -1,0 +1,44 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": [
+                "mkdir \"${workspaceFolder}\\build\\\" ",
+                "&",
+                "mkdir \"${workspaceFolder}\\build\\${relativeFileDirname}\\\" ",
+                "&",
+                "${env:PATH_TO_MSYS64}\\mingw64\\bin\\g++.exe",
+            ],
+            "args": [
+                "-Wall",
+                "-DUNICODE",
+                "-std=c++11",
+                "-ggdb",
+                "${file}",
+                "-o",
+                "${workspaceFolder}\\build\\${relativeFileDirname}\\${fileBasenameNoExtension}.exe",
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$eslint-compact"
+            ]
+        },
+        {
+            "label": "run",
+            "type": "process",
+            "command": "${workspaceFolder}\\build\\${relativeFileDirname}\\${fileBasenameNoExtension}.exe",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$eslint-compact"
+            ]
+        }
+    ]
+}
